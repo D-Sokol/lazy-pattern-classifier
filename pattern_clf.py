@@ -53,5 +53,5 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
                 votes += 1
 
         # TODO: weights, coefficients, other
-        return votes
+        return votes / len(this_num)
 
