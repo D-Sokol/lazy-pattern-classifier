@@ -5,8 +5,8 @@ import pandas as pd
 
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self):
-        pass
+    def __init__(self, tolerance=0.0):
+        self.tolerance = tolerance
 
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
@@ -49,7 +49,7 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             for i_attr in range(pattern_cats.shape[1]):
                 mask &= np.isin(other_cat[:, i_attr], pattern_cats[:, i_attr])
 
-            if not mask.any():
+            if mask.mean() <= self.tolerance:
                 votes += 1
 
         # TODO: weights, coefficients, other
