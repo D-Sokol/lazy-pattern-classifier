@@ -6,9 +6,16 @@ import pandas as pd
 
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, tolerance=0.0, use_softmax=True):
+    weights_strategies = ['uniform', 'from_objects', 'from_classifiers']
+
+    def __init__(self, tolerance=0.0, use_softmax=True, weights_strategy='uniform', weight_classifiers=True, weights_iters=100):
         self.tolerance = tolerance
         self.use_softmax = use_softmax
+        if weights_strategy not in self.weights_strategies:
+            raise ValueError("Unknown weights strategy: {}. Allowed only {}".format(weights_strategy, self.weights_strategies))
+        self.weights_strategy = weights_strategy
+        self.weight_classifiers = weight_classifiers
+        self.weights_iters = weights_iters
 
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
@@ -19,7 +26,16 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         self.Xnum_n = Xnum[~y]
         self.Xcat_p = Xcat[y]
         self.Xcat_n = Xcat[~y]
-        self.weights = None  # TODO
+        self._set_weights()
+
+
+    def _set_weights(self):
+        if self.weights_strategy == 'uniform':
+            self.weights_p = np.ones(self.Xnum_p.shape[0])
+            self.weights_n = np.ones(self.Xnum_n.shape[0])
+        else:
+            # TODO: AdaBoost here
+            raise NotImplementedError
 
 
     def predict(self, X: pd.DataFrame):
@@ -57,9 +73,11 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         other_num = self.Xnum_n if to_positive else self.Xnum_p
         this_cat  = self.Xcat_p if to_positive else self.Xcat_n
         other_cat = self.Xcat_n if to_positive else self.Xcat_p
+        this_w    = self.weights_p if to_positive else self.weights_n
+        other_w   = self.weights_n if to_positive else self.weights_p
 
         votes = 0
-        for bnum, bcat in zip(this_num, this_cat):
+        for bnum, bcat, weight in zip(this_num, this_cat, this_w):
             pattern_mins = np.minimum(num, bnum)
             pattern_maxs = np.maximum(num, bnum)
             pattern_cats = np.stack((cat, bcat))
@@ -68,9 +86,12 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             for i_attr in range(pattern_cats.shape[1]):
                 mask &= np.isin(other_cat[:, i_attr], pattern_cats[:, i_attr])
 
-            if mask.mean() <= self.tolerance:
-                votes += 1
+            if self.weight_classifiers:
+                if mask.mean() <= self.tolerance:
+                    votes += weight
+            else:
+                if mask @ other_w <= self.tolerance:
+                    votes += 1
 
-        # TODO: weights, coefficients, other
         return votes / len(this_num)
 
