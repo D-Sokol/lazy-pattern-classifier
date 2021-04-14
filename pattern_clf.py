@@ -68,6 +68,22 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         return self._score(num, cat, True) > self._score(num, cat, False)
 
 
+    @staticmethod
+    def _get_pattern(num1, num2, cat1, cat2):
+        pattern_mins = np.minimum(num1, num2)
+        pattern_maxs = np.maximum(num1, num2)
+        pattern_cats = np.stack((cat1, cat2))
+        return (pattern_mins, pattern_maxs, pattern_cats)
+
+
+    @staticmethod
+    def _satisfy(pattern_mins, pattern_maxs, pattern_cats, other_num, other_cat):
+        mask = ((other_num >= pattern_mins) & (other_num <= pattern_maxs)).all(axis=1)
+        for i_attr in range(pattern_cats.shape[1]):
+            mask &= np.isin(other_cat[:, i_attr], pattern_cats[:, i_attr])
+        return mask
+
+
     def _score(self, num, cat, to_positive=True):
         this_num  = self.Xnum_p if to_positive else self.Xnum_n
         other_num = self.Xnum_n if to_positive else self.Xnum_p
@@ -78,13 +94,8 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
 
         votes = 0
         for bnum, bcat, weight in zip(this_num, this_cat, this_w):
-            pattern_mins = np.minimum(num, bnum)
-            pattern_maxs = np.maximum(num, bnum)
-            pattern_cats = np.stack((cat, bcat))
-
-            mask = ((other_num >= pattern_mins) & (other_num <= pattern_maxs)).all(axis=1)
-            for i_attr in range(pattern_cats.shape[1]):
-                mask &= np.isin(other_cat[:, i_attr], pattern_cats[:, i_attr])
+            pattern = self._get_pattern(num, bnum, cat, bcat)
+            mask = self._satisfy(*pattern, other_num, other_cat)
 
             if self.weight_classifiers:
                 if mask.mean() <= self.tolerance:
