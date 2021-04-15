@@ -8,7 +8,7 @@ import pandas as pd
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
     weights_strategies = ['uniform', 'from_objects', 'from_classifiers']
 
-    def __init__(self, tolerance=0.0, use_softmax=True, weights_strategy='uniform', weight_classifiers=True, weights_iters=100):
+    def __init__(self, tolerance=0.0, use_softmax=True, weights_strategy='uniform', weight_classifiers=True, weights_iters=5):
         self.tolerance = tolerance
         self.use_softmax = use_softmax
         if weights_strategy not in self.weights_strategies:
@@ -26,16 +26,52 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         self.Xnum_n = Xnum[~y]
         self.Xcat_p = Xcat[y]
         self.Xcat_n = Xcat[~y]
-        self._set_weights()
+        self._set_weights(Xnum, Xcat, y)
 
 
-    def _set_weights(self):
+    def _set_weights(self, Xnum, Xcat, y):
         if self.weights_strategy == 'uniform':
             self.weights_p = np.ones(self.Xnum_p.shape[0])
             self.weights_n = np.ones(self.Xnum_n.shape[0])
         else:
-            # TODO: AdaBoost here
-            raise NotImplementedError
+            if self.weights_strategy == 'from_classifiers':
+                # TODO: implement alternative strategy
+                raise NotImplementedError
+
+            objects_weights = np.full(len(Xnum), 1/len(Xnum))
+            for _ in range(self.weights_iters):
+                eps_min = float('inf')
+                eps_min_ix = None  # FIXME: unused variable
+
+                for ix_clf in range(y.size):
+                    y_pred = np.empty(y.size, dtype=bool)
+                    next_opposite_index = 0
+                    for ix_obj in range(y.size):
+                        pattern = self._get_pattern(Xnum[ix_clf], Xnum[ix_obj], Xcat[ix_clf], Xcat[ix_obj])
+                        other_num = (self.Xnum_n if y[ix_clf] else self.Xnum_p)
+                        other_cat = (self.Xcat_n if y[ix_clf] else self.Xcat_p)
+                        mask = self._satisfy(*pattern, other_num, other_cat)
+                        if y[ix_clf] != y[ix_obj]:
+                            assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
+                            assert mask[next_opposite_index]
+                            # Exclude the classified object from consideration
+                            mask[next_opposite_index] = False
+                            next_opposite_index += 1
+                        y_pred[ix_obj] = mask.any() ^ y[ix_clf]
+                    epsilon = objects_weights[y_pred != y].sum()
+                    if epsilon < eps_min:
+                        eps_min = epsilon
+                        eps_min_ix = ix_clf
+
+                if eps_min >= 0.5:
+                    break
+
+                alpha = np.log(- 1 + 1 / eps_min) / 2
+                # TODO: alternative strategy: alphas[ix] += alpha
+                objects_weights *= np.where(y_pred == y, np.exp(-alpha), np.exp(+alpha))
+                objects_weights /= objects_weights.sum()
+            self.weights_p = objects_weights[y]
+            self.weights_n = objects_weights[~y]
 
 
     def predict(self, X: pd.DataFrame):
