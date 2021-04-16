@@ -52,12 +52,15 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
                         other_cat = (self.Xcat_n if y[ix_clf] else self.Xcat_p)
                         mask = self._satisfy(*pattern, other_num, other_cat)
                         if y[ix_clf] != y[ix_obj]:
-                            assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
-                            assert mask[next_opposite_index]
+                            #assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
+                            #assert mask[next_opposite_index]
                             # Exclude the classified object from consideration
                             mask[next_opposite_index] = False
                             next_opposite_index += 1
-                        y_pred[ix_obj] = mask.any() ^ y[ix_clf]
+
+                        # Since there are no weights yet, we use simple average
+                        y_pred[ix_obj] = (mask.mean() <= self.tolerance) ^ y[ix_clf]
+
                     epsilon = objects_weights[y_pred != y].sum()
                     if epsilon < eps_min:
                         eps_min = epsilon
