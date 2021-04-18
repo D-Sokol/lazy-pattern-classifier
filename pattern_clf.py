@@ -34,12 +34,9 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             self.weights_p = np.ones(self.Xnum_p.shape[0])
             self.weights_n = np.ones(self.Xnum_n.shape[0])
         else:
-            if self.weights_strategy == 'from_classifiers':
-                # TODO: implement alternative strategy
-                raise NotImplementedError
-
             objects_weights = np.full(len(Xnum), 1/len(Xnum))
-            for _ in range(self.weights_iters):
+            alphas = np.zeros(len(Xnum))
+            for _ in range(self.weights_iters if self.weights_strategy == 'from_objects' else len(Xnum)):
                 eps_min = float('inf')
                 eps_min_ix = None  # FIXME: unused variable
 
@@ -70,11 +67,19 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
                     break
 
                 alpha = np.log(- 1 + 1 / eps_min) / 2
-                # TODO: alternative strategy: alphas[ix] += alpha
+                alphas[eps_min_ix] += alpha
                 objects_weights *= np.where(y_pred == y, np.exp(-alpha), np.exp(+alpha))
                 objects_weights /= objects_weights.sum()
-            self.weights_p = objects_weights[y]
-            self.weights_n = objects_weights[~y]
+
+            if self.weights_strategy == 'from_objects':
+                self.weights_p = objects_weights[y]
+                self.weights_n = objects_weights[~y]
+            else:
+                self.weights_p = alphas[y]
+                self.weights_n = alphas[~y]
+
+            self.weights_p /= self.weights_p.sum()
+            self.weights_n /= self.weights_n.sum()
 
 
     def predict(self, X: pd.DataFrame):
