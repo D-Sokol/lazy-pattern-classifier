@@ -5,7 +5,7 @@ import pandas as pd
 
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
-    weights_strategies = ['uniform', 'from_objects', 'from_classifiers']
+    weights_strategies = ['uniform', 'from_objects']
 
     def __init__(self, tolerance=0.0, use_softmax=True, weights_strategy='uniform', weight_classifiers=True,
                  weights_iters=5):
@@ -34,10 +34,8 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             self.weights_n = np.ones(self.Xnum_n.shape[0])
         else:
             objects_weights = np.full(len(Xnum), 1/len(Xnum))
-            alphas = np.zeros(len(Xnum))
             for _ in range(self.weights_iters):
                 eps_min = float('inf')
-                eps_min_ix = None
 
                 y_pred = np.empty(y.size, dtype=bool)
                 for ix_clf in range(y.size):
@@ -60,22 +58,16 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
                     epsilon = objects_weights[y_pred != y].sum()
                     if epsilon < eps_min:
                         eps_min = epsilon
-                        eps_min_ix = ix_clf
 
                 if eps_min >= 0.5:
                     break
 
                 alpha = np.log(- 1 + 1 / eps_min) / 2
-                alphas[eps_min_ix] += alpha
                 objects_weights *= np.where(y_pred == y, np.exp(-alpha), np.exp(+alpha))
                 objects_weights /= objects_weights.sum()
 
-            if self.weights_strategy == 'from_objects':
-                self.weights_p = objects_weights[y]
-                self.weights_n = objects_weights[~y]
-            else:
-                self.weights_p = alphas[y]
-                self.weights_n = alphas[~y]
+            self.weights_p = objects_weights[y]
+            self.weights_n = objects_weights[~y]
 
             if self.weights_p.any():
                 self.weights_p /= self.weights_p.sum()
