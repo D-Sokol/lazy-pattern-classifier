@@ -44,6 +44,5 @@ def get_titanic():
     X.drop(['Name', 'Ticket', 'Cabin'], axis=1, inplace=True)
     X['Sex'] = (X['Sex'] == 'male')
     X.fillna({'Age': X['Age'].median(), 'Embarked': 'X'}, inplace=True)
-    X = X.astype({col: float for col in X if col not in ('Embarked')}, copy=False)
+    X = X.astype({col: float for col in X if col not in ('Embarked',)}, copy=False)
     return X, y
-
