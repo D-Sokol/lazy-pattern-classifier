@@ -1,3 +1,4 @@
+from functools import wraps
 import os
 import pandas as pd
 
@@ -7,6 +8,16 @@ def _read_csv(name, **kw):
     return pd.read_csv(path, **kw)
 
 
+def apply_one_hot(fun):
+    @wraps(fun)
+    def wrapper(*args, **kw):
+        X, y = fun(*args, **kw)
+        X = pd.get_dummies(X, dtype=float)
+        return X, y
+    return wrapper
+
+
+@apply_one_hot
 def get_breast_cancer():
     df = _read_csv('breast-cancer-wisconsin.zip', index_col=0)
     df.drop('Unnamed: 32', axis=1, inplace=True)
@@ -14,6 +25,7 @@ def get_breast_cancer():
     return X, y
 
 
+@apply_one_hot
 def get_heart_disease():
     df = _read_csv('heart-disease-uci.zip')
     X, y = df.drop('target', axis=1), df['target']
@@ -21,6 +33,7 @@ def get_heart_disease():
     return X, y
 
 
+@apply_one_hot
 def get_mammographic_mass():
     df = _read_csv('mammographic-mass.zip')
     X, y = df.drop('Severity', axis=1), df['Severity']
@@ -28,6 +41,7 @@ def get_mammographic_mass():
     return X, y
 
 
+@apply_one_hot
 def get_seismic_bumps():
     df = _read_csv('seismic-bumps.zip')
     X, y = df.drop('class', axis=1), df['class']
@@ -38,6 +52,7 @@ def get_seismic_bumps():
     return X, y
 
 
+@apply_one_hot
 def get_titanic():
     df = _read_csv('titanic.zip', index_col=0)
     X, y = df.drop('Survived', axis=1), df['Survived']
