@@ -69,15 +69,11 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             self.weights_p = objects_weights[y]
             self.weights_n = objects_weights[~y]
 
-            if self.weights_p.any():
-                self.weights_p /= self.weights_p.sum()
-            else:
-                self.weights_p.fill(1)
+            self.weights_p = -self.weights_p
+            softmax(self.weights_p[None], copy=False)
 
-            if self.weights_n.any():
-                self.weights_n /= self.weights_n.sum()
-            else:
-                self.weights_n.fill(1)
+            self.weights_n = -self.weights_n
+            softmax(self.weights_n[None], copy=False)
 
     def predict(self, X: pd.DataFrame):
         y_pred = np.empty(X.shape[0], dtype=bool)
