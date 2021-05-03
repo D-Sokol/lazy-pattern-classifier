@@ -5,15 +5,10 @@ import pandas as pd
 
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
-    weights_strategies = ['uniform', 'from_objects']
-
-    def __init__(self, tolerance=0.0, use_softmax=True, weights_strategy='uniform', weight_classifiers=True,
-                 weights_iters=5):
+    def __init__(self, tolerance=0.0, use_softmax=True, weight_classifiers=True,
+                 weights_iters=0):
         self.tolerance = tolerance
         self.use_softmax = use_softmax
-        if weights_strategy not in self.weights_strategies:
-            raise ValueError(f"Unknown weights strategy: {weights_strategy}. Allowed only {self.weights_strategies}")
-        self.weights_strategy = weights_strategy
         self.weight_classifiers = weight_classifiers
         self.weights_iters = weights_iters
         self.Xnum_p = self.Xnum_n = self.Xcat_p = self.Xcat_n = None
@@ -29,51 +24,43 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         self._set_weights(Xnum, Xcat, y)
 
     def _set_weights(self, Xnum, Xcat, y):
-        if self.weights_strategy == 'uniform':
-            self.weights_p = np.ones(self.Xnum_p.shape[0])
-            self.weights_n = np.ones(self.Xnum_n.shape[0])
-        else:
-            objects_weights = np.full(len(Xnum), 1/len(Xnum))
-            for _ in range(self.weights_iters):
-                eps_min = float('inf')
+        objects_weights = np.zeros(len(Xnum))
+        for _ in range(self.weights_iters):
+            eps_min = float('inf')
 
-                y_pred = np.empty(y.size, dtype=bool)
-                for ix_clf in range(y.size):
-                    next_opposite_index = 0
-                    for ix_obj in range(y.size):
-                        pattern = self._get_pattern(Xnum[ix_clf], Xnum[ix_obj], Xcat[ix_clf], Xcat[ix_obj])
-                        other_num = (self.Xnum_n if y[ix_clf] else self.Xnum_p)
-                        other_cat = (self.Xcat_n if y[ix_clf] else self.Xcat_p)
-                        mask = self._satisfy(*pattern, other_num, other_cat)
-                        if y[ix_clf] != y[ix_obj]:
-                            # assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
-                            # assert mask[next_opposite_index]
-                            # Exclude the classified object from consideration
-                            mask[next_opposite_index] = False
-                            next_opposite_index += 1
+            y_pred = np.empty(y.size, dtype=bool)
+            for ix_clf in range(y.size):
+                next_opposite_index = 0
+                for ix_obj in range(y.size):
+                    pattern = self._get_pattern(Xnum[ix_clf], Xnum[ix_obj], Xcat[ix_clf], Xcat[ix_obj])
+                    other_num = (self.Xnum_n if y[ix_clf] else self.Xnum_p)
+                    other_cat = (self.Xcat_n if y[ix_clf] else self.Xcat_p)
+                    mask = self._satisfy(*pattern, other_num, other_cat)
+                    if y[ix_clf] != y[ix_obj]:
+                        # assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
+                        # assert mask[next_opposite_index]
+                        # Exclude the classified object from consideration
+                        mask[next_opposite_index] = False
+                        next_opposite_index += 1
 
-                        # Since there are no weights yet, we use simple average
-                        y_pred[ix_obj] = (mask.mean() <= self.tolerance) ^ y[ix_clf]
+                    # Since there are no weights yet, we use simple average
+                    y_pred[ix_obj] = (mask.mean() <= self.tolerance) ^ y[ix_clf]
 
-                    epsilon = objects_weights[y_pred != y].sum()
-                    if epsilon < eps_min:
-                        eps_min = epsilon
+                epsilon = objects_weights[y_pred != y].sum()
+                if epsilon < eps_min:
+                    eps_min = epsilon
 
-                if eps_min >= 0.5:
-                    break
+            if eps_min >= 0.5:
+                break
 
-                alpha = np.log(- 1 + 1 / eps_min) / 2
-                objects_weights *= np.where(y_pred == y, np.exp(-alpha), np.exp(+alpha))
-                objects_weights /= objects_weights.sum()
+            alpha = np.log(- 1 + 1 / eps_min) / 2
+            objects_weights *= np.where(y_pred == y, np.exp(-alpha), np.exp(+alpha))
+            objects_weights /= objects_weights.sum()
 
-            self.weights_p = objects_weights[y]
-            self.weights_n = objects_weights[~y]
-
-            #self.weights_p = -self.weights_p
-            softmax(self.weights_p[None], copy=False)
-
-            #self.weights_n = -self.weights_n
-            softmax(self.weights_n[None], copy=False)
+        self.weights_p = objects_weights[y]
+        self.weights_n = objects_weights[~y]
+        softmax(self.weights_p[None], copy=False)
+        softmax(self.weights_n[None], copy=False)
 
     def predict(self, X: pd.DataFrame):
         y_pred = np.empty(X.shape[0], dtype=bool)
