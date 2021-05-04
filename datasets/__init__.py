@@ -61,3 +61,17 @@ def get_titanic():
     X.fillna({'Age': X['Age'].median(), 'Embarked': 'X'}, inplace=True)
     X = X.astype({col: float for col in X if col not in ('Embarked',)}, copy=False)
     return X, y
+
+def make_GSE_getter(name):
+    def getter():
+        df = _read_csv(name, index_col=0)
+        X, y = df.drop('type', axis=1), df['type']
+        y = (y == 'normal')
+        assert X.values.dtype.kind == 'f'
+        return X, y
+    return getter
+
+
+get_breast_GSE = make_GSE_getter('Breast_GSE70947.csv')
+get_liver_GSE = make_GSE_getter('Liver_GSE14520_U133A.csv')
+get_prostate_GSE = make_GSE_getter('Prostate_GSE6919_U95B.csv')
