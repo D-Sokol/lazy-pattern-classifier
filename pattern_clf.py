@@ -12,19 +12,17 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         self.weight_classifiers = weight_classifiers
         self.weights_iters = weights_iters
         self.temperature = temperature
-        self.Xnum_p = self.Xnum_n = self.Xcat_p = self.Xcat_n = None
+        self.Xnum_p = self.Xnum_n = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
         y = y.values.astype(bool)
-        Xnum = X.select_dtypes(include=float).values
-        Xcat = X.select_dtypes(exclude=float).values
+        Xnum = X.values
+        assert X.select_dtypes(exclude=float).values.size == 0
         self.Xnum_p = Xnum[y]
         self.Xnum_n = Xnum[~y]
-        self.Xcat_p = Xcat[y]
-        self.Xcat_n = Xcat[~y]
-        self._set_weights(Xnum, Xcat, y)
+        self._set_weights(Xnum, y)
 
-    def _set_weights(self, Xnum, Xcat, y):
+    def _set_weights(self, Xnum, y):
         objects_weights = np.zeros(len(Xnum))
         for _ in range(self.weights_iters):
             eps_min = float('inf')
@@ -33,10 +31,9 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             for ix_clf in range(y.size):
                 next_opposite_index = 0
                 for ix_obj in range(y.size):
-                    pattern = self._get_pattern(Xnum[ix_clf], Xnum[ix_obj], Xcat[ix_clf], Xcat[ix_obj])
+                    pattern = self._get_pattern(Xnum[ix_clf], Xnum[ix_obj])
                     other_num = (self.Xnum_n if y[ix_clf] else self.Xnum_p)
-                    other_cat = (self.Xcat_n if y[ix_clf] else self.Xcat_p)
-                    mask = self._satisfy(*pattern, other_num, other_cat)
+                    mask = self._satisfy(*pattern, other_num)
                     if y[ix_clf] != y[ix_obj]:
                         # assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
                         # assert mask[next_opposite_index]
@@ -66,17 +63,17 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
     def predict(self, X: pd.DataFrame):
         y_pred = np.empty(X.shape[0], dtype=bool)
         Xnum = X.select_dtypes(include=float).values
-        Xcat = X.select_dtypes(exclude=float).values
+        assert X.select_dtypes(exclude=float).values.size == 0
         for i in range(X.shape[0]):
-            y_pred[i] = self._predict_one(Xnum[i], Xcat[i])
+            y_pred[i] = self._predict_one(Xnum[i])
         return y_pred
 
     def predict_proba(self, X: pd.DataFrame):
         result = np.empty((X.shape[0], 2))
         Xnum = X.select_dtypes(include=float).values
-        Xcat = X.select_dtypes(exclude=float).values
-        for i, (num, cat) in enumerate(zip(Xnum, Xcat)):
-            result[i] = (self._score(num, cat, False), self._score(num, cat, True))
+        assert X.select_dtypes(exclude=float).values.size == 0
+        for i, num in enumerate(Xnum):
+            result[i] = (self._score(num, False), self._score(num, True))
 
         if self.use_softmax:
             softmax(result, copy=False)
@@ -87,35 +84,30 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             result[~mask] = 0.5
         return result
 
-    def _predict_one(self, num: np.ndarray, cat: np.ndarray) -> bool:
-        return self._score(num, cat, True) > self._score(num, cat, False)
+    def _predict_one(self, num: np.ndarray) -> bool:
+        return self._score(num, True) > self._score(num, False)
 
     @staticmethod
-    def _get_pattern(num1, num2, cat1, cat2):
+    def _get_pattern(num1, num2):
         pattern_mins = np.minimum(num1, num2)
         pattern_maxs = np.maximum(num1, num2)
-        pattern_cats = np.stack((cat1, cat2))
-        return pattern_mins, pattern_maxs, pattern_cats
+        return pattern_mins, pattern_maxs
 
     @staticmethod
-    def _satisfy(pattern_mins, pattern_maxs, pattern_cats, other_num, other_cat):
+    def _satisfy(pattern_mins, pattern_maxs, other_num):
         mask = np.logical_and((other_num >= pattern_mins), (other_num <= pattern_maxs)).all(axis=1)
-        for i_attr in range(pattern_cats.shape[1]):
-            mask &= np.isin(other_cat[:, i_attr], pattern_cats[:, i_attr])
         return mask
 
-    def _score(self, num, cat, to_positive=True):
+    def _score(self, num, to_positive=True):
         this_num = self.Xnum_p if to_positive else self.Xnum_n
         other_num = self.Xnum_n if to_positive else self.Xnum_p
-        this_cat = self.Xcat_p if to_positive else self.Xcat_n
-        other_cat = self.Xcat_n if to_positive else self.Xcat_p
         this_w = self.weights_p if to_positive else self.weights_n
         other_w = self.weights_n if to_positive else self.weights_p
 
         votes = 0
-        for bnum, bcat, weight in zip(this_num, this_cat, this_w):
-            pattern = self._get_pattern(num, bnum, cat, bcat)
-            mask = self._satisfy(*pattern, other_num, other_cat)
+        for bnum, weight in zip(this_num, this_w):
+            pattern = self._get_pattern(num, bnum)
+            mask = self._satisfy(*pattern, other_num)
 
             if self.weight_classifiers:
                 if mask.mean() <= self.tolerance:
