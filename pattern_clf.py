@@ -6,11 +6,13 @@ import pandas as pd
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, tolerance=0.0, weight_classifiers=True,
-                 weights_iters=0, temperature=1.):
+                 weights_iters=0):
+                 #weights_iters=0, temperature=1.):
         self.tolerance = tolerance
         self.weight_classifiers = weight_classifiers
         self.weights_iters = weights_iters
-        self.temperature = temperature
+        #self.temperature = temperature
+        self.temperature = 1.0
         self.Xnum_p = self.Xnum_n = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
@@ -22,11 +24,12 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         self._set_weights(Xnum, y)
 
     def _set_weights(self, Xnum, y):
-        objects_weights = np.zeros(len(Xnum))
+        objects_weights = np.full(y.size, 1/y.size)
         for _ in range(self.weights_iters):
             eps_min = float('inf')
 
             y_pred = np.empty(y.size, dtype=bool)
+            y_pred_best = np.empty_like(y_pred)
             for ix_clf in range(y.size):
                 next_opposite_index = 0
                 for ix_obj in range(y.size):
@@ -46,18 +49,19 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
                 epsilon = objects_weights[y_pred != y].sum()
                 if epsilon < eps_min:
                     eps_min = epsilon
+                    y_pred_best[:] = y_pred
 
             if eps_min >= 0.5:
                 break
 
-            alpha = np.log(- 1 + 1 / eps_min) / 2
-            objects_weights *= np.where(y_pred == y, np.exp(-alpha), np.exp(+alpha))
+            alpha = np.log(- 1 + 1 / max(eps_min, 1e-6)) / 2
+            objects_weights *= np.where(y_pred_best == y, np.exp(-alpha), np.exp(+alpha))
             objects_weights /= objects_weights.sum()
 
         self.weights_p = objects_weights[y] / self.temperature
         self.weights_n = objects_weights[~y] / self.temperature
-        softmax(self.weights_p[None], copy=False)
-        softmax(self.weights_n[None], copy=False)
+        #softmax(self.weights_p[None], copy=False)
+        #softmax(self.weights_n[None], copy=False)
 
     def predict(self, X: pd.DataFrame):
         y_pred = np.empty(X.shape[0], dtype=bool)
