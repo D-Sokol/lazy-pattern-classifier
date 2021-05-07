@@ -5,10 +5,9 @@ import pandas as pd
 
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, tolerance=0.0, use_softmax=True, weight_classifiers=True,
+    def __init__(self, tolerance=0.0, weight_classifiers=True,
                  weights_iters=0, temperature=1.):
         self.tolerance = tolerance
-        self.use_softmax = use_softmax
         self.weight_classifiers = weight_classifiers
         self.weights_iters = weights_iters
         self.temperature = temperature
@@ -75,13 +74,7 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         for i, num in enumerate(Xnum):
             result[i] = (self._score(num, False), self._score(num, True))
 
-        if self.use_softmax:
-            softmax(result, copy=False)
-        else:
-            s = result.sum(axis=1, keepdims=True)
-            mask = (s.squeeze() != 0)
-            result[mask] /= s[mask]
-            result[~mask] = 0.5
+        softmax(result, copy=False)
         return result
 
     def _predict_one(self, num: np.ndarray) -> bool:
