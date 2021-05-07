@@ -6,11 +6,12 @@ import pandas as pd
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, tolerance=0.0, use_softmax=True, weight_classifiers=True,
-                 weights_iters=0):
+                 weights_iters=0, temperature=1.):
         self.tolerance = tolerance
         self.use_softmax = use_softmax
         self.weight_classifiers = weight_classifiers
         self.weights_iters = weights_iters
+        self.temperature = temperature
         self.Xnum_p = self.Xnum_n = self.Xcat_p = self.Xcat_n = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
@@ -57,8 +58,8 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             objects_weights *= np.where(y_pred == y, np.exp(-alpha), np.exp(+alpha))
             objects_weights /= objects_weights.sum()
 
-        self.weights_p = objects_weights[y]
-        self.weights_n = objects_weights[~y]
+        self.weights_p = objects_weights[y] / self.temperature
+        self.weights_n = objects_weights[~y] / self.temperature
         softmax(self.weights_p[None], copy=False)
         softmax(self.weights_n[None], copy=False)
 
