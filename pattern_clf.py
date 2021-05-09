@@ -113,4 +113,4 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
                 if mask @ other_w <= self.tolerance:
                     votes += 1
 
-        return votes / len(this_num)
+        return votes
