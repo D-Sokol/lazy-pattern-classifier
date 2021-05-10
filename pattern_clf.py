@@ -24,38 +24,36 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         self._set_weights(Xnum, y)
 
     def _set_weights(self, Xnum, y):
+        y_pred = np.empty((y.size, y.size), dtype=bool)
+        for ix_clf in range(y.size):
+            next_opposite_index = 0
+            for ix_obj in range(y.size):
+                pattern = self._get_pattern(Xnum[ix_clf], Xnum[ix_obj])
+                other_num = (self.Xnum_n if y[ix_clf] else self.Xnum_p)
+                mask = self._satisfy(*pattern, other_num)
+                if y[ix_clf] != y[ix_obj]:
+                    # assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
+                    # assert mask[next_opposite_index]
+                    # Exclude the classified object from consideration
+                    mask[next_opposite_index] = False
+                    next_opposite_index += 1
+
+                # Since there are no weights yet, we use simple average
+                y_pred[ix_clf, ix_obj] = (mask.mean() <= self.tolerance) ^ y[ix_clf]
+
         objects_weights = np.full(y.size, 1/y.size)
         for _ in range(self.weights_iters):
             eps_min = float('inf')
 
-            y_pred = np.empty(y.size, dtype=bool)
-            y_pred_best = np.empty_like(y_pred)
-            for ix_clf in range(y.size):
-                next_opposite_index = 0
-                for ix_obj in range(y.size):
-                    pattern = self._get_pattern(Xnum[ix_clf], Xnum[ix_obj])
-                    other_num = (self.Xnum_n if y[ix_clf] else self.Xnum_p)
-                    mask = self._satisfy(*pattern, other_num)
-                    if y[ix_clf] != y[ix_obj]:
-                        # assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
-                        # assert mask[next_opposite_index]
-                        # Exclude the classified object from consideration
-                        mask[next_opposite_index] = False
-                        next_opposite_index += 1
-
-                    # Since there are no weights yet, we use simple average
-                    y_pred[ix_obj] = (mask.mean() <= self.tolerance) ^ y[ix_clf]
-
-                epsilon = objects_weights[y_pred != y].sum()
-                if epsilon < eps_min:
-                    eps_min = epsilon
-                    y_pred_best[:] = y_pred
+            epsilons = np.where(y_pred != y, objects_weights, 0.).sum(axis=1)
+            ix_best = epsilons.argmin()
+            eps_min = epsilons[ix_best]
 
             if eps_min >= 0.5:
                 break
 
             alpha = np.log(- 1 + 1 / max(eps_min, 1e-6)) / 2
-            objects_weights *= np.where(y_pred_best == y, np.exp(-alpha), np.exp(+alpha))
+            objects_weights *= np.where(y_pred[ix_best] == y, np.exp(-alpha), np.exp(+alpha))
             objects_weights /= objects_weights.sum()
 
         self.weights_p = objects_weights[y] / self.temperature
