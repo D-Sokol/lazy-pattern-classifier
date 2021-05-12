@@ -5,14 +5,7 @@ import pandas as pd
 
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, tolerance=0.0, weight_classifiers=True,
-                 weights_iters=0):
-                 #weights_iters=0, temperature=1.):
-        self.tolerance = tolerance
-        self.weight_classifiers = weight_classifiers
-        self.weights_iters = weights_iters
-        #self.temperature = temperature
-        self.temperature = 1.0
+    def __init__(self):
         self.Xnum_p = self.Xnum_n = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
@@ -24,44 +17,7 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         self._set_weights(Xnum, y)
 
     def _set_weights(self, Xnum, y):
-        objects_weights = np.full(y.size, 1/y.size)
-        for _ in range(self.weights_iters):
-            eps_min = float('inf')
-
-            y_pred = np.empty(y.size, dtype=bool)
-            y_pred_best = np.empty_like(y_pred)
-            for ix_clf in range(y.size):
-                next_opposite_index = 0
-                for ix_obj in range(y.size):
-                    pattern = self._get_pattern(Xnum[ix_clf], Xnum[ix_obj])
-                    other_num = (self.Xnum_n if y[ix_clf] else self.Xnum_p)
-                    mask = self._satisfy(*pattern, other_num)
-                    if y[ix_clf] != y[ix_obj]:
-                        # assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
-                        # assert mask[next_opposite_index]
-                        # Exclude the classified object from consideration
-                        mask[next_opposite_index] = False
-                        next_opposite_index += 1
-
-                    # Since there are no weights yet, we use simple average
-                    y_pred[ix_obj] = (mask.mean() <= self.tolerance) ^ y[ix_clf]
-
-                epsilon = objects_weights[y_pred != y].sum()
-                if epsilon < eps_min:
-                    eps_min = epsilon
-                    y_pred_best[:] = y_pred
-
-            if eps_min >= 0.5:
-                break
-
-            alpha = np.log(- 1 + 1 / max(eps_min, 1e-6)) / 2
-            objects_weights *= np.where(y_pred_best == y, np.exp(-alpha), np.exp(+alpha))
-            objects_weights /= objects_weights.sum()
-
-        self.weights_p = objects_weights[y] / self.temperature
-        self.weights_n = objects_weights[~y] / self.temperature
-        #softmax(self.weights_p[None], copy=False)
-        #softmax(self.weights_n[None], copy=False)
+        pass
 
     def predict(self, X: pd.DataFrame):
         y_pred = np.empty(X.shape[0], dtype=bool)
@@ -82,7 +38,11 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         return result
 
     def _predict_one(self, num: np.ndarray) -> bool:
-        return self._score(num, True) > self._score(num, False)
+        for p_clf in self.Xnum_p:
+            pattern = self._get_pattern(p_clf, num)
+            if not self._satisfy(*pattern, self.Xnum_n).any():
+                return True
+        return False
 
     @staticmethod
     def _get_pattern(num1, num2):
@@ -95,6 +55,7 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         mask = np.logical_and((other_num >= pattern_mins), (other_num <= pattern_maxs)).all(axis=1)
         return mask
 
+    # deprecated
     def _score(self, num, to_positive=True):
         this_num = self.Xnum_p if to_positive else self.Xnum_n
         other_num = self.Xnum_n if to_positive else self.Xnum_p
