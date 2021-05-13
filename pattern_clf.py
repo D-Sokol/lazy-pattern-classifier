@@ -35,11 +35,9 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
 
         objects_weights = np.full(n, 1 / n)
         classifiers_weights = np.zeros(this_n)
-        classifiers_is_used = np.zeros(this_n, dtype=bool)
         for _ in range(this_n):
             epsilons = np.where(prediction_errors, objects_weights, 0.).sum(axis=1)
-            ix_best = np.ma.masked_array(epsilons, mask=classifiers_is_used).argmin()
-            classifiers_is_used[ix_best] = True
+            ix_best = epsilons.argmin()
             eps_min = epsilons[ix_best]
             #if eps_min >= 0.5:
             #    break
