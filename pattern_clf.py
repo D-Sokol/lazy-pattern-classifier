@@ -71,12 +71,14 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
     def _predict_one(self, num: np.ndarray) -> bool:
         clfs = self.Xnum_p if self.use_positive else self.Xnum_n
         objs = self.Xnum_n if self.use_positive else self.Xnum_p
-        count_not_falsified = 0
+        votes = 0
         for p_clf, clf_weight in zip(clfs, self.weights_):
             pattern = self._get_pattern(p_clf, num)
             if self._satisfy(*pattern, objs).mean() <= self.alpha:
-                count_not_falsified += clf_weight
-        return self.use_positive == (count_not_falsified > self.beta)
+                votes += clf_weight
+            else:
+                votes -= clf_weight
+        return self.use_positive == (votes > self.beta)
 
     @staticmethod
     def _get_pattern(num1, num2):
