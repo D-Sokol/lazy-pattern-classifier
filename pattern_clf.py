@@ -41,8 +41,8 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             ix_best = np.ma.masked_array(epsilons, mask=classifiers_is_used).argmin()
             classifiers_is_used[ix_best] = True
             eps_min = epsilons[ix_best]
-            if eps_min >= 0.5:
-                break
+            #if eps_min >= 0.5:
+            #    break
 
             alpha = np.log(- 1 + 1 / max(eps_min, 1e-6)) / 2
             classifiers_weights[ix_best] = alpha
