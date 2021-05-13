@@ -49,6 +49,8 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
             objects_weights *= np.where(prediction_errors[ix_best], np.exp(+alpha), np.exp(-alpha))
             objects_weights /= objects_weights.sum()
         self.weights_ = classifiers_weights
+        self.weights_obj_ = objects_weights[y ^ self.use_positive]
+        self.weights_obj_ /= self.weights_obj_.sum()
 
     def predict(self, X: pd.DataFrame):
         y_pred = np.empty(X.shape[0], dtype=bool)
@@ -74,7 +76,7 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         votes = 0
         for p_clf, clf_weight in zip(clfs, self.weights_):
             pattern = self._get_pattern(p_clf, num)
-            if self._satisfy(*pattern, objs).mean() <= self.alpha:
+            if self._satisfy(*pattern, objs) @ self.weights_obj_ <= self.alpha:
                 votes += clf_weight
             else:
                 votes -= clf_weight
