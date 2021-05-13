@@ -5,7 +5,8 @@ import pandas as pd
 
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self):
+    def __init__(self, use_positive=True):
+        self.use_positive = use_positive
         self.Xnum_p = self.Xnum_n = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
@@ -38,11 +39,13 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         return result
 
     def _predict_one(self, num: np.ndarray) -> bool:
-        for p_clf in self.Xnum_p:
+        clfs = self.Xnum_p if self.use_positive else self.Xnum_n
+        objs = self.Xnum_n if self.use_positive else self.Xnum_p
+        for p_clf in clfs:
             pattern = self._get_pattern(p_clf, num)
-            if not self._satisfy(*pattern, self.Xnum_n).any():
-                return True
-        return False
+            if not self._satisfy(*pattern, objs).any():
+                return self.use_positive
+        return not self.use_positive
 
     @staticmethod
     def _get_pattern(num1, num2):
