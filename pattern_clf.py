@@ -10,6 +10,7 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         self.alpha = alpha
         self.beta = beta
         self.Xnum_p = self.Xnum_n = None
+        self.weights_ = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series):
         y = y.values.astype(bool)
@@ -20,7 +21,34 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         self._set_weights(Xnum, y)
 
     def _set_weights(self, Xnum, y):
-        pass
+        this_num = self.Xnum_p if self.use_positive else self.Xnum_n
+        other_num = self.Xnum_n if self.use_positive else self.Xnum_p
+        this_n, other_n = len(this_num), len(other_num)
+        n = y.size
+        prediction_errors = np.empty((this_n, n), dtype=bool)
+        for ix_clf in range(this_n):
+            for ix_obj in range(n):
+                pattern = self._get_pattern(this_num[ix_clf], Xnum[ix_obj])
+                mask = self._satisfy(*pattern, other_num)
+                prediction_errors[ix_clf, ix_obj] = ((mask.mean() < self.alpha) == self.use_positive)
+        prediction_errors ^= y
+
+        objects_weights = np.full(n, 1 / n)
+        classifiers_weights = np.zeros(this_n)
+        classifiers_is_used = np.zeros(this_n, dtype=bool)
+        for _ in range(this_n):
+            epsilons = np.where(prediction_errors, objects_weights, 0.).sum(axis=1)
+            ix_best = np.ma.masked_array(epsilons, mask=classifiers_is_used).argmin()
+            classifiers_is_used[ix_best] = True
+            eps_min = epsilons[ix_best]
+            if eps_min >= 0.5:
+                break
+
+            alpha = np.log(- 1 + 1 / max(eps_min, 1e-6)) / 2
+            classifiers_weights[ix_best] = alpha
+            objects_weights *= np.where(prediction_errors[ix_best], np.exp(+alpha), np.exp(-alpha))
+            objects_weights /= objects_weights.sum()
+        self.weights_ = classifiers_weights
 
     def predict(self, X: pd.DataFrame):
         y_pred = np.empty(X.shape[0], dtype=bool)
@@ -44,11 +72,11 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
         clfs = self.Xnum_p if self.use_positive else self.Xnum_n
         objs = self.Xnum_n if self.use_positive else self.Xnum_p
         count_not_falsified = 0
-        for p_clf in clfs:
+        for p_clf, clf_weight in zip(clfs, self.weights_):
             pattern = self._get_pattern(p_clf, num)
             if self._satisfy(*pattern, objs).mean() <= self.alpha:
-                count_not_falsified += 1
-        return self.use_positive == (count_not_falsified > self.beta * len(clfs))
+                count_not_falsified += clf_weight
+        return self.use_positive == (count_not_falsified > self.beta)
 
     @staticmethod
     def _get_pattern(num1, num2):
