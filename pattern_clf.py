@@ -1,86 +1,87 @@
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.extmath import softmax
+from sklearn.utils.multiclass import unique_labels
+from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 import numpy as np
 import pandas as pd
 
 
 class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, tolerance=0.0, weight_classifiers=True,
-                 weights_iters=0):
-                 #weights_iters=0, temperature=1.):
-        self.tolerance = tolerance
-        self.weight_classifiers = weight_classifiers
-        self.weights_iters = weights_iters
-        #self.temperature = temperature
-        self.temperature = 1.0
-        self.Xnum_p = self.Xnum_n = None
+    def __init__(self, use_positive=True, alpha=0.0, beta=0.0):
+        self.use_positive = use_positive
+        self.alpha = alpha
+        self.beta = beta
 
-    def fit(self, X: pd.DataFrame, y: pd.Series):
-        y = y.values.astype(bool)
-        Xnum = X.values
-        assert X.select_dtypes(exclude=float).values.size == 0
-        self.Xnum_p = Xnum[y]
-        self.Xnum_n = Xnum[~y]
+    def fit(self, X, y):
+        Xnum, y = check_X_y(X, y)
+
+        self.n_features_in_ = Xnum.shape[-1]
+        self.classes_ = unique_labels(y)
+        if self.classes_.size > 2:
+            raise ValueError
+
+        y = (y == self.classes_[-1])
+        self.Xnum_p_ = Xnum[y]
+        self.Xnum_n_ = Xnum[~y]
         self._set_weights(Xnum, y)
+        return self
 
     def _set_weights(self, Xnum, y):
-        y_pred = np.empty((y.size, y.size), dtype=bool)
-        for ix_clf in range(y.size):
-            next_opposite_index = 0
-            for ix_obj in range(y.size):
-                pattern = self._get_pattern(Xnum[ix_clf], Xnum[ix_obj])
-                other_num = (self.Xnum_n if y[ix_clf] else self.Xnum_p)
+        this_num = self.Xnum_p_ if self.use_positive else self.Xnum_n_
+        other_num = self.Xnum_n_ if self.use_positive else self.Xnum_p_
+        this_n, other_n = len(this_num), len(other_num)
+        n = y.size
+        prediction_errors = np.empty((this_n, n), dtype=bool)
+        for ix_clf in range(this_n):
+            for ix_obj in range(n):
+                pattern = self._get_pattern(this_num[ix_clf], Xnum[ix_obj])
                 mask = self._satisfy(*pattern, other_num)
-                if y[ix_clf] != y[ix_obj]:
-                    # assert np.array_equal(Xnum[ix_obj], other_num[next_opposite_index])
-                    # assert mask[next_opposite_index]
-                    # Exclude the classified object from consideration
-                    mask[next_opposite_index] = False
-                    next_opposite_index += 1
+                prediction_errors[ix_clf, ix_obj] = ((mask.mean() < self.alpha) == self.use_positive)
+        prediction_errors ^= y
 
-                # Since there are no weights yet, we use simple average
-                y_pred[ix_clf, ix_obj] = (mask.mean() <= self.tolerance) ^ y[ix_clf]
-
-        objects_weights = np.full(y.size, 1/y.size)
-        for _ in range(self.weights_iters):
-            eps_min = float('inf')
-
-            epsilons = np.where(y_pred != y, objects_weights, 0.).sum(axis=1)
-            ix_best = epsilons.argmin()
+        objects_weights = np.full(n, 1 / n)
+        classifiers_weights = np.zeros(this_n)
+        classifiers_is_used = np.zeros(this_n, dtype=bool)
+        for _ in range(this_n):
+            epsilons = np.where(prediction_errors, objects_weights, 0.).sum(axis=1)
+            ix_best = np.ma.masked_array(epsilons, mask=classifiers_is_used).argmin()
+            classifiers_is_used[ix_best] = True
             eps_min = epsilons[ix_best]
-
             if eps_min >= 0.5:
                 break
 
             alpha = np.log(- 1 + 1 / max(eps_min, 1e-6)) / 2
-            objects_weights *= np.where(y_pred[ix_best] == y, np.exp(-alpha), np.exp(+alpha))
+            classifiers_weights[ix_best] = alpha
+            objects_weights *= np.where(prediction_errors[ix_best], np.exp(+alpha), np.exp(-alpha))
             objects_weights /= objects_weights.sum()
+        self.weights_ = classifiers_weights
 
-        self.weights_p = objects_weights[y] / self.temperature
-        self.weights_n = objects_weights[~y] / self.temperature
-        #softmax(self.weights_p[None], copy=False)
-        #softmax(self.weights_n[None], copy=False)
+    def predict(self, X):
+        check_is_fitted(self, ['Xnum_p_', 'Xnum_n_'])
+        Xnum = check_array(X)
 
-    def predict(self, X: pd.DataFrame):
-        y_pred = np.empty(X.shape[0], dtype=bool)
-        Xnum = X.select_dtypes(include=float).values
-        assert X.select_dtypes(exclude=float).values.size == 0
-        for i in range(X.shape[0]):
+        if self.classes_.size == 1:
+            return np.full(Xnum.shape[0], self.classes_[0])
+
+        y_pred = np.empty(Xnum.shape[0], dtype=int)
+        for i in range(Xnum.shape[0]):
             y_pred[i] = self._predict_one(Xnum[i])
-        return y_pred
-
-    def predict_proba(self, X: pd.DataFrame):
-        result = np.empty((X.shape[0], 2))
-        Xnum = X.select_dtypes(include=float).values
-        assert X.select_dtypes(exclude=float).values.size == 0
-        for i, num in enumerate(Xnum):
-            result[i] = (self._score(num, False), self._score(num, True))
-
-        softmax(result, copy=False)
-        return result
+        return self.classes_[y_pred]
 
     def _predict_one(self, num: np.ndarray) -> bool:
-        return self._score(num, True) > self._score(num, False)
+        clfs = self.Xnum_p_ if self.use_positive else self.Xnum_n_
+        objs = self.Xnum_n_ if self.use_positive else self.Xnum_p_
+        votes = 0
+        for p_clf, clf_weight in zip(clfs, self.weights_):
+            pattern = self._get_pattern(p_clf, num)
+            if self._satisfy(*pattern, objs).mean() <= self.alpha:
+                votes += clf_weight
+            else:
+                votes -= clf_weight
+        return self.use_positive == (votes > self.beta)
+
+    def _more_tags(self):
+        return {'binary_only': True,}
 
     @staticmethod
     def _get_pattern(num1, num2):
@@ -92,23 +93,3 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
     def _satisfy(pattern_mins, pattern_maxs, other_num):
         mask = np.logical_and((other_num >= pattern_mins), (other_num <= pattern_maxs)).all(axis=1)
         return mask
-
-    def _score(self, num, to_positive=True):
-        this_num = self.Xnum_p if to_positive else self.Xnum_n
-        other_num = self.Xnum_n if to_positive else self.Xnum_p
-        this_w = self.weights_p if to_positive else self.weights_n
-        other_w = self.weights_n if to_positive else self.weights_p
-
-        votes = 0
-        for bnum, weight in zip(this_num, this_w):
-            pattern = self._get_pattern(num, bnum)
-            mask = self._satisfy(*pattern, other_num)
-
-            if self.weight_classifiers:
-                if mask.mean() <= self.tolerance:
-                    votes += weight
-            else:
-                if mask @ other_w <= self.tolerance:
-                    votes += 1
-
-        return votes
