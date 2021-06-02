@@ -83,13 +83,13 @@ class LazyPatternClassifier(BaseEstimator, ClassifierMixin):
     def _more_tags(self):
         return {'binary_only': True,}
 
-    @staticmethod
-    def _get_pattern(num1, num2):
+    @classmethod
+    def _get_pattern(cls, num1, num2):
         pattern_mins = np.minimum(num1, num2)
         pattern_maxs = np.maximum(num1, num2)
         return pattern_mins, pattern_maxs
 
-    @staticmethod
-    def _satisfy(pattern_mins, pattern_maxs, other_num):
+    @classmethod
+    def _satisfy(cls, pattern_mins, pattern_maxs, other_num):
         mask = np.logical_and((other_num >= pattern_mins), (other_num <= pattern_maxs)).all(axis=1)
         return mask
