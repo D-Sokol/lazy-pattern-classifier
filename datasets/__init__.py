@@ -75,3 +75,10 @@ def make_GSE_getter(name):
 get_breast_GSE = make_GSE_getter('Breast_GSE70947.csv')
 get_liver_GSE = make_GSE_getter('Liver_GSE14520_U133A.csv')
 get_prostate_GSE = make_GSE_getter('Prostate_GSE6919_U95B.csv')
+
+
+
+def get_hiv():
+    df = _read_csv('HIV.csv')
+    X, y = df[['smiles']], df['HIV_active']
+    return X, y
